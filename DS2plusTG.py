@@ -11,8 +11,14 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from dotenv import load_dotenv
 import os
+print(f"Доступно CUDA: {torch.cuda.is_available()}")
+
+print(f"Загрузка модели...")
+
 
 load_dotenv()
+
+
 
 try:
     nltk.data.find('tokenizers/punkt')
@@ -23,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 
 DOCUMENTS_JSON = "/app/output/data.json"
 
-MODEL_NAME = "tiiuae/falcon-7b-instruct"
+MODEL_NAME = "deepseek-ai/deepseek-coder-7b-instruct-v1.5"
 
 DEVICE = torch.device("cuda")
 
@@ -57,7 +63,7 @@ def split_into_chunks(text, chunk_size=300):
 
 class DocumentRetriever:
     def __init__(self, model_name='sentence-transformers/all-MiniLM-L6-v2'):
-        self.retriever = SentenceTransformer(model_name, device='cpu')
+        self.retriever = SentenceTransformer(model_name, device='cuda')
 
     def get_relevant_docs(self, query, documents, top_k=3):
         try:
@@ -107,7 +113,7 @@ def init_llm(model_name):
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch.bfloat16
-        ).to(DEVICE)
+        )
 
         return tokenizer, model
 
@@ -128,10 +134,12 @@ def generate_response(query, documents, retriever, tokenizer, model):
                 page_info = f" (стр. {doc['name'].split('(страница ')[1].split(')')[0]})"
             elif "чанк" in doc['name']:
                 page_info = f" (чанк {doc['name'].split('чанк ')[1].split(')')[0]})"
-
+            
             cleaned_text = re.sub(r'\[\d+\.\d+\.\d+\]', '', doc['text'])
             source = f"{doc['name'].split(' (')[0]}{page_info}"
-            context_parts.append(f"{source}:\n{cleaned_text}")
+           
+            file_url = f"https://hackaton.hb.ru-msk.vkcloud-storage.ru/media/{doc['name'].split(' (')[0]}"
+            context_parts.append(f"{source}:\n{cleaned_text}\n[Скачать файл]({file_url})")
 
         context = "\n\n".join(context_parts)
 
@@ -148,8 +156,8 @@ def generate_response(query, documents, retriever, tokenizer, model):
 
         outputs = model.generate(
             **inputs,
-            max_new_tokens=200,
-            temperature=0.9,  # Креативность
+            max_new_tokens=100,
+            temperature=0.7,  # Креативность
             top_p=0.3,  # Строгий или нет выбор токенов
             repetition_penalty=1.2,
             do_sample=True,
@@ -181,8 +189,8 @@ async def handle_message(update: Update, context: CallbackContext):
         tokenizer=tokenizer,
         model=model
     )
-    await update.message.reply_text(response[:2000])
-
+    
+    await update.message.reply_text(response[:2000], parse_mode='Markdown')
 
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text("Добро пожаловать! Задавайте вопросы.")
@@ -205,12 +213,16 @@ def main():
         global retriever, tokenizer, model
         retriever = DocumentRetriever()
         tokenizer, model = init_llm(MODEL_NAME)
+        
+        print("="*50)
+        print("Бот готов отвечать на вопросы")
+        print("="*50)
 
     except Exception as e:
         logging.error(f"Ошибка инициализации: {e}")
         return
 
-    print("задавай тг боту вопросы")
+
     application = Application.builder().token(TELEGRAMM_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))

@@ -1,0 +1,35 @@
+# Основные ML-зависимости
+torch==2.1.2+cu121
+transformers==4.36.2
+accelerate==0.27.2
+bitsandbytes==0.42.0
+huggingface-hub==0.20.3
+tokenizers==0.15.2
+sentence-transformers==2.3.1
+auto-gptq==0.5.1
+
+# Обработка документов
+pdfminer.six==20221105
+pytesseract==0.3.10
+pillow==9.5.0
+python-docx==0.8.11
+openpyxl==3.1.2
+pdf2image==1.16.3
+PyPDF2==3.0.1
+nltk==3.8.1
+
+# Telegram бот
+python-telegram-bot==20.5
+python-dotenv==1.0.0
+
+# Дополнительные
+numpy==1.26.0
+pandas==2.0.0
+tqdm==4.65.0
+loguru==0.7.0
+flask==2.2.0
+gunicorn==20.1.0
+psycopg2-binary==2.9.6
+requests==2.31.0
+fastapi==0.103.0
+uvicorn==0.23.2

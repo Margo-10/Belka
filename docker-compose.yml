@@ -1,0 +1,77 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: documents
+      POSTGRES_CHECKPOINT_TIMEOUT: "10min"        
+    volumes:
+      - ./WorkWithDb:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d documents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  document-processor:
+    build: .
+    runtime: nvidia
+    environment:
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:32,garbage_collection_threshold:0.8
+      - NVIDIA_VISIBLE_DEVICES=all
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=documents
+      - PG_HOST=db
+      - OCR_TIMEOUT=600
+      - BASE_DOWNLOAD_URL=https://hackaton.hb.ru-msk.vkcloud-storage.ru/media
+      - DOWNLOAD_MAX_RETRIES=3
+      - DOWNLOAD_TIMEOUT=30
+      - TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
+      - TESSERACT_CMD=/usr/bin/tesseract
+      - POPPLER_PATH=/usr/bin
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./offload:/app/offload
+      - .:/app 
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 16G  
+          cpus: '4'
+    command: >
+      /bin/sh -c "
+        echo 'Ожидание готовности БД...';
+        until pg_isready -h db -U admin -d documents; do sleep 2; done;
+        echo 'Восстановление БД...';
+        python3 /app/WorkWithDb/RestoreDb.py;
+        echo 'Загрузка файлов...';
+        python3 /app/WorkWithDb/FileDownloader.py;
+        echo 'Обработка данных...';
+        python3 /app/Data2.py;
+        echo 'Запуск Telegram бота...';
+        python3 /app/DS2plusTG.py
+      "
+
+volumes:
+  pgdata:

@@ -62,8 +62,8 @@ WORKDIR /app
 # Создание рабочих директорий
 RUN mkdir -p /app/data/downloaded_files \
     /app/output \
-    /app/logs \
-    /app/offload
+    /app/logs
+
 
 # Настройка окружения
 ENV PYTHONPATH=/app \
@@ -71,5 +71,18 @@ ENV PYTHONPATH=/app \
     TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata \
     POPPLER_PATH=/usr/bin \
     TESSERACT_CMD=/usr/bin/tesseract
+
+
+RUN python -c "import nltk; nltk.download('punkt', download_dir='/usr/share/nltk_data')"
+
+# Предварительная загрузка SentenceTransformer модели
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2', cache_folder='/app/models')"
+
+# Установка переменных окружения для кэша
+ENV NLTK_DATA=/usr/share/nltk_data \
+    TRANSFORMERS_CACHE=/app/models \
+    HF_DATASETS_CACHE=/app/models \
+    XDG_CACHE_HOME=/app/cache
+
 
 CMD ["bash"]

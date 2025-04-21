@@ -49,6 +49,13 @@ Hakaton/
     docker-compose up
 
  ```
-
+3. **После того, как файлы обработаются, выйдет сообщение об успешной обработке. После этого следует запустить контейнер в интерактивном режиме:**
+ ```bash
+    docker-compose run --service-ports document-processor /bin/bash
+ ```
+4. **После входа в контейнер выполните:**
+ ```bash
+    python3 /app/DS2plusTG.py
+ ```
 
 

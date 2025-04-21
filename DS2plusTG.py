@@ -9,16 +9,17 @@ import logging
 from nltk.tokenize import sent_tokenize
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+
+
+
 from dotenv import load_dotenv
 import os
-print(f"Доступно CUDA: {torch.cuda.is_available()}")
-
-print(f"Загрузка модели...")
-
 
 load_dotenv()
 
+TELEGRAMM_TOKEN= os.getenv('TELEGRAM_TOKEN')
 
+print(TELEGRAMM_TOKEN)
 
 try:
     nltk.data.find('tokenizers/punkt')
@@ -29,14 +30,13 @@ logging.basicConfig(level=logging.INFO)
 
 DOCUMENTS_JSON = "/app/output/data.json"
 
+
+
 MODEL_NAME = "deepseek-ai/deepseek-coder-7b-instruct-v1.5"
 
 DEVICE = torch.device("cuda")
 
 
-TELEGRAMM_TOKEN= os.getenv('TELEGRAM_TOKEN')
-
-print(TELEGRAMM_TOKEN)
 
 class StopOnTokens(StoppingCriteria):
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
@@ -63,7 +63,7 @@ def split_into_chunks(text, chunk_size=300):
 
 class DocumentRetriever:
     def __init__(self, model_name='sentence-transformers/all-MiniLM-L6-v2'):
-        self.retriever = SentenceTransformer(model_name, device='cuda')
+        self.retriever = SentenceTransformer(model_name, device='cuda' if torch.cuda.is_available() else 'cpu')
 
     def get_relevant_docs(self, query, documents, top_k=3):
         try:
@@ -75,6 +75,7 @@ class DocumentRetriever:
                 text_chunks = split_into_chunks(text)
 
                 for i, chunk in enumerate(text_chunks):  # Без ограничения по чанкам
+ #               for i, chunk in enumerate(text_chunks[:5]):
                     chunks.append({
                         'name': f"{doc.get('name', 'Без названия')} (чанк {i + 1})",
                         'text': chunk,
@@ -103,19 +104,23 @@ def init_llm(model_name):
         )
 
         quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True
+            load_in_8bit=True,
+            bnb_8bit_compute_dtype=torch.bfloat16,
+            bnb_8bit_quant_type="nf8",
+            bnb_8bit_use_double_quant=True
         )
 
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             quantization_config=quantization_config,
             torch_dtype=torch.bfloat16
-        )
+        ) 
 
+        print("Model device:", next(model.parameters()).device)
         return tokenizer, model
+
+
+      
 
     except Exception as e:
         logging.error(f"Ошибка при загрузке модели: {e}")
@@ -134,18 +139,16 @@ def generate_response(query, documents, retriever, tokenizer, model):
                 page_info = f" (стр. {doc['name'].split('(страница ')[1].split(')')[0]})"
             elif "чанк" in doc['name']:
                 page_info = f" (чанк {doc['name'].split('чанк ')[1].split(')')[0]})"
-            
+
             cleaned_text = re.sub(r'\[\d+\.\d+\.\d+\]', '', doc['text'])
             source = f"{doc['name'].split(' (')[0]}{page_info}"
-           
-            file_url = f"https://hackaton.hb.ru-msk.vkcloud-storage.ru/media/{doc['name'].split(' (')[0]}"
-            context_parts.append(f"{source}:\n{cleaned_text}\n[Скачать файл]({file_url})")
+            context_parts.append(f"{source}:\n{cleaned_text}")
 
         context = "\n\n".join(context_parts)
 
         prompt = f"""
 <|im_start|>system
-Отвечай только на основе предоставленных документов. Если информации нет, отвечай ровно: "Информация отсутствует." Не добавляй ничего лишнего. Укажи источник (документ и страница/чанк), если данные найдены. <|im_end|>
+Ты ассистент котоырй помогает с поиском информации. Отвечай только на основе предоставленных документов. Если информации нет, отвечай: "Информация отсутствует." Не добавляй ничего лишнего, можешь только рассказывать информацию по теме, но только если в ней уверен. Укажи источник (документ и страница/чанк), если данные найдены. <|im_end|>
 <|im_start|>user
 Контекст: {context}
 Вопрос: {query}<|im_end|>
@@ -156,8 +159,8 @@ def generate_response(query, documents, retriever, tokenizer, model):
 
         outputs = model.generate(
             **inputs,
-            max_new_tokens=100,
-            temperature=0.7,  # Креативность
+            max_new_tokens=200,
+            temperature=0.9,  # Креативность
             top_p=0.3,  # Строгий или нет выбор токенов
             repetition_penalty=1.2,
             do_sample=True,
@@ -171,6 +174,7 @@ def generate_response(query, documents, retriever, tokenizer, model):
             result = result.split('<|im_start|>assistant')[-1].strip()
 
         result = re.sub(r'<\|.*?\|>', '', result).strip()
+
 
 
         return result
@@ -189,13 +193,15 @@ async def handle_message(update: Update, context: CallbackContext):
         tokenizer=tokenizer,
         model=model
     )
-    
-    await update.message.reply_text(response[:2000], parse_mode='Markdown')
+    await update.message.reply_text(response[:2000])
+
 
 async def start(update: Update, context: CallbackContext):
     await update.message.reply_text("Добро пожаловать! Задавайте вопросы.")
 
 def main():
+    print("CUDA available:", torch.cuda.is_available())
+
     try:
         with open(DOCUMENTS_JSON, 'r', encoding='utf-8') as f:
             global documents
@@ -213,15 +219,11 @@ def main():
         global retriever, tokenizer, model
         retriever = DocumentRetriever()
         tokenizer, model = init_llm(MODEL_NAME)
-        
-        print("="*50)
-        print("Бот готов отвечать на вопросы")
-        print("="*50)
+        print("Model device:", next(model.parameters()).device)  
 
     except Exception as e:
         logging.error(f"Ошибка инициализации: {e}")
         return
-
 
     application = Application.builder().token(TELEGRAMM_TOKEN).build()
 
@@ -232,6 +234,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
- 

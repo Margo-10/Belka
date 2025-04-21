@@ -44,8 +44,10 @@ services:
       - ./data:/app/data
       - ./output:/app/output
       - ./logs:/app/logs
-      - ./offload:/app/offload
       - .:/app 
+      - ./models:/app/models  
+      - ./cache:/app/cache    
+      - ./nltk_data:/usr/share/nltk_data  
     depends_on:
       db:
         condition: service_healthy
